@@ -18,6 +18,7 @@ import android.util.Log;
 import android.util.TypedValue;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
@@ -32,6 +33,8 @@ import com.oakzmm.camerapoi.model.CameraPoint;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
 import butterknife.Bind;
@@ -41,9 +44,10 @@ import butterknife.ButterKnife;
 /**
  * TODO: 2015/12/9
  * 1. 0~360 的平滑过度
- * 2. pointList远近排序
- * 3. 相机的自动聚焦
- * 4. poiItem相互的遮挡
+ * 2. 相机的自动聚焦
+ * 3. poiItem相互的遮挡 get
+ * 4. 展示添加POI距离 get
+ * 5. 半透明背景 get
  */
 public class CameraActivity extends Activity implements SurfaceHolder.Callback {
     private static final String TAG = CameraActivity.class.getSimpleName();
@@ -54,7 +58,6 @@ public class CameraActivity extends Activity implements SurfaceHolder.Callback {
     private final Camera.AutoFocusCallback myAutoFocusCallback = new Camera.AutoFocusCallback() {
 
         public void onAutoFocus(boolean autoFocusSuccess, Camera arg1) {
-            //Wait.oneSec();
             Log.i(TAG, "AutoFocus");
         }
     };
@@ -83,7 +86,7 @@ public class CameraActivity extends Activity implements SurfaceHolder.Callback {
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
         setContentView(R.layout.activity_camera);
         ButterKnife.bind(this);
-        //搜索到的POI 点。
+        //搜索到的POI 点
         items = getIntent().getParcelableArrayListExtra("POI");
         //中心点
         coo = getIntent().getParcelableExtra("COO");
@@ -97,7 +100,6 @@ public class CameraActivity extends Activity implements SurfaceHolder.Callback {
         Sensor sensor_orientation = sensorManager.getDefaultSensor(Sensor.TYPE_ORIENTATION);
         sensorManager.registerListener(mySensorEventListener, sensor_orientation, SensorManager.SENSOR_DELAY_UI);
         super.onResume();
-
         new Handler().postDelayed(new Runnable() {
             @Override
             public void run() {
@@ -135,14 +137,9 @@ public class CameraActivity extends Activity implements SurfaceHolder.Callback {
         layoutParams.width = width + widthPixels;
         layoutParams.height = height + 100;
         layout.setLayoutParams(layoutParams);
-
         pointList.clear();
         for (int i = 0; i < count; i++) {
-            RelativeLayout.LayoutParams params = new RelativeLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT);
             final PoiItem poiItem = items.get(i);
-            final TextView textView = getTextView(poiItem);
             final CameraPoint cameraPoint = new CameraPoint();
             cameraPoint.setTitle(poiItem.getTitle());
             cameraPoint.setUrl(poiItem.getWebsite());
@@ -150,24 +147,105 @@ public class CameraActivity extends Activity implements SurfaceHolder.Callback {
             final double angle = calAngle(coo, poiItem.getLatLonPoint());
             int left = (int) (angle * width / 360) + widthPixels / 2;
             int top = (radius - distance) * height / radius;
-            Log.i(TAG, "angle:" + angle + "   distance:" + distance + "   left:" + left + "   top:" + top);
+            cameraPoint.setAngle((int) angle);
+            cameraPoint.setDistance(distance);
             cameraPoint.setPoint(new Point(left, top));
             pointList.add(cameraPoint);
-            params.leftMargin = left;
-            params.topMargin = top;
-            layout.addView(textView, params);
+//            layoutChildView(cameraPoint);
         }
-        Log.i(TAG, "size:" + layout.getChildCount() + "  width:" + layout.getWidth());
+        layout.removeAllViews();
+
+        reviseViewLayout(pointList);
+
     }
 
+    /**
+     * 校正childView的位置 位置重叠 遮挡
+     * fixme 并不能保证所有的点完全的不重叠 有待改进
+     *
+     * @param points
+     */
+    private void reviseViewLayout(List<CameraPoint> points) {
+        Collections.sort(points, new Comparator<CameraPoint>() {
+            @Override
+            public int compare(CameraPoint lhs, CameraPoint rhs) {
+                return lhs.getAngle() - rhs.getAngle();
+            }
+        });
+        int count = points.size();
+        int referLeft;
+        int referRight;
+        int referTop;
+        int referBottom;
+        for (int i = 0; i < count; i++) {
+            CameraPoint cameraPoint = points.get(i);
+            if (i > 0) {
+                TextView referView = (TextView) layout.getChildAt(i - 1);
+                CameraPoint tempPoint = points.get(i - 1);
+                referView.measure(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
+                referLeft = tempPoint.getPoint().x;
+                referRight = referLeft + referView.getMeasuredWidth();
+                referTop = tempPoint.getPoint().y;
+                referBottom = referTop + referView.getMeasuredHeight();
+                Log.i(TAG, "left:" + referLeft + " right:" + referRight + "  top:" + referTop + " bottom:" + referBottom);
+                int left = cameraPoint.getPoint().x;
+                int top = cameraPoint.getPoint().y;
+                TextView textView = getTextView(cameraPoint);
+                textView.measure(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
+                int height = textView.getMeasuredHeight();
+                Log.i(TAG, "height:" + height);
+                int bottom = top + height;
+                if (left >= referLeft && left <= referRight) {
+                    if (top >= referTop && top <= referBottom) {
+                        top = top + height;
+                        cameraPoint.setPoint(new Point(left, top));
+                    } else if (bottom >= referTop && bottom <= referBottom) {
+                        top = top - height;
+                        cameraPoint.setPoint(new Point(left, top));
+                    }
+                }
+            }
+            layoutChildView(cameraPoint);
+        }
+    }
+
+    /**
+     * add childView
+     *
+     * @param cameraPoint
+     */
+    private void layoutChildView(CameraPoint cameraPoint) {
+        RelativeLayout.LayoutParams params = new RelativeLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        final TextView textView = getTextView(cameraPoint);
+        params.leftMargin = cameraPoint.getPoint().x;
+        params.topMargin = cameraPoint.getPoint().y;
+        layout.addView(textView, params);
+    }
+
+    /**
+     * getTextView
+     *
+     * @param poiItem
+     * @return
+     */
     @NonNull
-    private TextView getTextView(PoiItem poiItem) {
+    private TextView getTextView(final CameraPoint poiItem) {
         final TextView textView = new TextView(this);
-        textView.setBackgroundColor(Color.WHITE);
-        textView.setTextColor(Color.BLACK);
-        textView.setText(poiItem.getTitle());
+        textView.setBackgroundColor(Color.parseColor("#30FFFFFF"));
+        textView.setTextColor(Color.WHITE);
+        textView.setText(poiItem.getTitle() + "\n" + poiItem.getDistance() + "m");
         textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+//        textView.setGravity(Gravity.CENTER_HORIZONTAL);
         textView.setPadding(15, 15, 15, 15);
+        textView.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                // TODO: 2015/12/14 跳转到详情页
+                Log.i(TAG, poiItem.getTitle());
+            }
+        });
         return textView;
     }
 
@@ -281,7 +359,8 @@ public class CameraActivity extends Activity implements SurfaceHolder.Callback {
     }
 
     /**
-     * 计算两点之间的角度 坐标为上方向
+     * 将短距离的经纬度视为平面坐标
+     * 计算两点之间的角度 Y坐标为上(北)方向 X坐标向右
      *
      * @param coo      中心点坐标
      * @param position 要计算的点的坐标
