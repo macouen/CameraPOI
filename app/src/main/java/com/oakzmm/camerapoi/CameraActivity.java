@@ -401,7 +401,7 @@ public class CameraActivity extends Activity implements SurfaceHolder.Callback {
                 final float x = event.values[0];
                 float y = event.values[1];
                 float z = event.values[2];
-                String orientation = "方向" + "X:" + x;
+                String orientation = "方向： " + x + "°";
                 hsvLabels.post(new Runnable() {
                     @Override
                     public void run() {
