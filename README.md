@@ -9,7 +9,7 @@
 Demo下载连接[http://fir.im/turj](http://fir.im/turj)
 
 
-![](https://github.com/macouen/CameraPOI/raw/master/image/Screenshot_01.png) 
+![](https://github.com/macouen/CameraPOI/raw/master/image/demo.gif) 
 
 
 ---
